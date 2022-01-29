@@ -3,17 +3,10 @@
 THINGS TO DO:
 
 4.1 Process the case the head of snake touches the its body. (kind of solved)
-In the guideline, there is no solution of the case that the head of snake touches its body.
-So, we need to stop the game and ask if the player wants to continue or not?
 
 4.6 Provide main menu (kind of solved)
-When coming to boardgame, we print the menu game, for example, “New Game”, “Load
-Game”, “Settings”, … So, this helps the players to easily choose actions they want.
 
 4.3 Keeping the length unchanged. (solved)
-In the guideline, when moving the next level (SPEED++), the length of snake will reset
-(default is 6). We need to keep this length unchanged when moving to next level. Only
-when moving to MAX_SPEED, it will be reset.
 
 4.2 Save/load. (State.cpp)
 In this guideline, we cannot save and load the game. We need two features. When the
