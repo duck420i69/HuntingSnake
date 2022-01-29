@@ -1,6 +1,7 @@
 # HuntingSnake
 
 THINGS TO DO:
+
 4.1 Process the case the head of snake touches the its body. (kind of solved)
 In the guideline, there is no solution of the case that the head of snake touches its body.
 So, we need to stop the game and ask if the player wants to continue or not?
