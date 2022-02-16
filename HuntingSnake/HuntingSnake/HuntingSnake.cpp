@@ -8,6 +8,7 @@
 #include <conio.h>
 #include <deque>
 #include "State.h"
+#include "Render.h"
 
 using namespace std;
 
@@ -16,13 +17,16 @@ char temp = '.';
 char key = ',';
 int PRE_STATE = -1;
 int CUR_STATE = 0;
-bool TYPING = false;         // Whether using key to interact or typing a string for save file or load file (TO-DO: find some way to pass the string to the running thread)
+bool TYPING = false;       
 bool STOP_THREAD = false;
+char str[20];
+
 
 
 void FixConsoleWindow() {
     HWND consoleWindow = GetConsoleWindow(); // Console window handler
     LONG style = GetWindowLong(consoleWindow, GWL_STYLE);
+    SetConsoleTitle(TEXT("Hunting Snake")); // Set title
     style = style & ~(WS_MAXIMIZEBOX) & ~(WS_THICKFRAME);
     SetWindowLong(consoleWindow, GWL_STYLE, style);
 }
@@ -30,9 +34,7 @@ void FixConsoleWindow() {
 void ThreadFunc() {
     
     while (1) {
-        key = ',';
         key = temp;
-
         if (STOP_THREAD) break;
         switch (CUR_STATE) {
         case 0: {
@@ -47,10 +49,16 @@ void ThreadFunc() {
         }
         case 2: {
             // LOAD STATE
+            RenderLoad();
+            TYPING = true;
+            while (TYPING) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            LoadFile(str);
+            CUR_STATE = 1;
             break;
         }
         case 3: {
             // SETTINGS STATE
+            CUR_STATE = Setting_State(key);
             break;
         }
         case 4: {
@@ -58,7 +66,17 @@ void ThreadFunc() {
             STOP_THREAD = true;
             break;
         }
+        case 5: {
+            // SAVE STATE
+            RenderSave();
+            TYPING = true;
+            while (TYPING) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            SaveFile(str);
+            CUR_STATE = 0;
+            break;
         }
+        }
+
     }
 }
 
@@ -72,19 +90,20 @@ void ThreadFunc() {
      HANDLE handle_t1 = t1.native_handle(); //Take handle of thread
      while (1) {
          if (!TYPING) {
-             // ADVANCE STUFF: some how make communicate to the process thread smoother
              temp = '.';
              temp = toupper(_getch());
              while (key != temp) {
-                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                 if (STOP_THREAD || TYPING) break;
+                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
              }
              if (CUR_STATE == 4) {
-                 t1.join();
+                 if (t1.joinable()) t1.join();
                  break;
              }
          }
          else {
-
+             cin >> str;
+             TYPING = false;
          }
      }
      return 0;
