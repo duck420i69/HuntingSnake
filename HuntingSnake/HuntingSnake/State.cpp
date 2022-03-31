@@ -3,6 +3,7 @@
 #include <deque>
 #include <array>
 #include "Render.h"
+#include "Audio.h"
 #include <thread>
 #include <chrono>
 #include <conio.h>
@@ -12,19 +13,21 @@
 
 bool DEBUG_MODE = 1;
 
+Config setting;
+
 //Constants
 #define MAX_SIZE_SNAKE 25  
 #define MAX_SIZE_FOOD 4             // Amount of food to get to next level (can add 1 more for gate)
 #define MAX_SPEED 9
-
+#define MAX_SIZE_WALL 50
 bool INIT = true;                   // When enter another state, INIT = true
 bool LOADFILE = false;
 
 //***************************************************
 POINT snake[MAX_SIZE_SNAKE];        // snake
 POINT food;                         // food
-POINT fpoint;                       
-std::array<POINT, 5> gate;         
+POINT epoint;
+std::array<POINT, 5> gate;
 std::deque<POINT> food_queue;       // food in snake stomach (add snake size when the eaten food reach the snake tail to solve a bug)
 char CHAR_LOCK;                     // used to determine the direction my snake cannot move (At a moment, there is one direction my snake cannot move to)
 char MOVING;                        // used to determine the direction my snake moves (At a moment, thereare three directions my snake can move)
@@ -34,14 +37,139 @@ int FOOD_INDEX;                     // current food-index
 int SIZE_SNAKE;                     // size of snake, initially maybe 6 units and maximum size may be 10
 bool IS_PLAYING;                    // State of snake: dead or alive
 bool IS_PAUSE;                      // pause or not
-int ANIMATION;                      // Animation to play (0: None, 1: Dead, 2: Passing Gate)
+bool PAUSE_INIT;
+bool GATE_OPEN;
+int ANIMATION;                      // Animation to play (0: None, 1: Dead, 2: Passing Gate, 3: Appear)
 int REMAIN_FRAME;                   // Remaining frame in  animation
+int wall_num;                       // number of wall in map
+POINT wall[MAX_SIZE_WALL];          // wall 
+int level=0;                        // game level
+
+
+
+bool IsCollision(POINT a, POINT b) {
+    return ((a.x == b.x) && (a.y == b.y));
+}
 
 bool IsValid(int x, int y) {
     for (int i = 0; i < SIZE_SNAKE; i++)
         if (snake[i].x == x && snake[i].y == y)
             return false;
+    for (int i = 0; i < wall_num; i++) {
+        if (wall[i].x == x && wall[i].y == y)
+            return false;
+    }
     return true;
+}
+
+bool IsDead(POINT head) {
+    if (level != 0) {
+        for (int i = 0; i < wall_num; i++) {
+            if(IsCollision(head, wall[i]))
+                return true;
+        }
+    }
+    if (GATE_OPEN)
+        for (int i = 0; i < 5; i++)
+            if (IsCollision(head, gate[i]))
+                return true;
+
+    for (int i = 0; i < SIZE_SNAKE - 2; i++)
+        if (IsCollision(head, snake[i + 1]))
+            return true;
+
+    for (int i = 0; i < food_queue.size(); i++)
+        if (IsCollision(head, food_queue[i]))
+            return true;
+
+    if ((head.x <= 0) || (head.x >= WIDTH_CONSOLE) || (head.y <= 0) || (head.y >= HEIGHT_CONSOLE))
+        return true;
+
+    return false;
+}
+
+bool CheckGateSpawn(int x, int y) {
+    for (int i = 0; i < 5; i++) {
+        for (int j = 0; j < 5; j++) {
+            if (!IsValid(x + i - 2, y + j - 2)) return false;
+        }
+    }
+    return true;
+}
+
+void Load_map1() {
+    wall_num = 25;
+    wall[0] = { 10,20 }; wall[1] = { 9,20 }; wall[2] = { 11,20 };
+    wall[3] = { 8,20 }; wall[4] = { 12, 20 };
+    int i = 5;
+    int dem = 1;
+    for (i; i < (wall_num - 5) / 2; i++) {
+        wall[i] = { 8, 20 - dem };
+        dem++;
+    }
+    dem = 1;
+    for (i; i < wall_num - 5; i++) {
+        wall[i] = { 11,20 - dem };
+        dem++;
+    }
+}
+
+void SpawnGate() {
+    int x, y, z;
+    srand(time(NULL));
+
+    do {
+        x = rand() % (WIDTH_CONSOLE - 6) + 3;
+        y = rand() % (HEIGHT_CONSOLE - 6) + 3;
+    } while (!CheckGateSpawn(x, y));
+    epoint.x = x; epoint.y = y;
+    z = rand() % 4;
+    if (z == 0) {
+        gate[0].x = x - 1; gate[0].y = y;
+        gate[1].x = x - 1; gate[1].y = y - 1;
+        gate[2].x = x; gate[2].y = y - 1;
+        gate[3].x = x + 1; gate[3].y = y - 1;
+        gate[4].x = x + 1; gate[4].y = y;
+    }
+    else if (z == 1) {
+        gate[0].x = x; gate[0].y = y + 1;
+        gate[1].x = x - 1; gate[1].y = y + 1;
+        gate[2].x = x - 1; gate[2].y = y;
+        gate[3].x = x - 1; gate[3].y = y - 1;
+        gate[4].x = x; gate[4].y = y - 1;
+    }
+    else if (z == 2) {
+        gate[0].x = x - 1; gate[0].y = y;
+        gate[1].x = x - 1; gate[1].y = y + 1;
+        gate[2].x = x; gate[2].y = y + 1;
+        gate[3].x = x + 1; gate[3].y = y + 1;
+        gate[4].x = x + 1; gate[4].y = y;
+    }
+    else if (z == 3) {
+        gate[0].x = x; gate[0].y = y + 1;
+        gate[1].x = x + 1; gate[1].y = y + 1;
+        gate[2].x = x + 1; gate[2].y = y;
+        gate[3].x = x + 1; gate[3].y = y - 1;
+        gate[4].x = x; gate[4].y = y - 1;
+    }
+}
+
+void PassGate() {
+    ANIMATION = 2;
+    REMAIN_FRAME = SIZE_SNAKE;
+    IS_PLAYING = false;
+}
+
+void Appear() {
+    ANIMATION = 3;
+    REMAIN_FRAME = SIZE_SNAKE;
+    IS_PLAYING = false;
+}
+
+void DeleteGate() {
+    GATE_OPEN = false;
+    FOOD_INDEX = 0;
+    ClearGate(gate);
 }
 
 void GenerateFood() {
@@ -57,6 +185,7 @@ void GenerateFood() {
 }
 
 
+
 void ResetData() {
     //Initialize the global values
     CHAR_LOCK = 'A', MOVING = 'D', SPEED = 5; FOOD_INDEX = 0, SIZE_SNAKE = 6,
@@ -65,29 +194,35 @@ void ResetData() {
     snake[0] = { 10, 5 }; snake[1] = { 11, 5 };
     snake[2] = { 12, 5 }; snake[3] = { 13, 5 };
     snake[4] = { 14, 5 }; snake[5] = { 15, 5 };
+    DeleteGate();
     food_queue.clear();
+    level = 0;
     GenerateFood(); //Create food
 
 }
 
 //Function to update global data
 void Eat() {
-    food_queue.push_back(food);
-    GenerateFood();
-    if (FOOD_INDEX == MAX_SIZE_FOOD - 1) {
-        FOOD_INDEX = 0;
-        if (SPEED == MAX_SPEED) ResetData();
-        else SPEED++;
-    }
-    else {
-        FOOD_INDEX++;
+
+    if (GATE_OPEN == false) {
+        if (FOOD_INDEX == MAX_SIZE_FOOD - 1) {
+            SpawnGate();
+            GATE_OPEN = true;
+            RenderGate(gate);
+
+            if (SPEED == MAX_SPEED) {
+                ResetData();
+            }
+            else SPEED++;
+        }
+        else {
+            food_queue.push_back(food);
+            FOOD_INDEX++;
+            GenerateFood();
+        }
     }
 }
 
-
-void BuildGate() {
-    
-}
 
 //Function to process the dead of snake
 void ProcessDead() {
@@ -97,12 +232,22 @@ void ProcessDead() {
 }
 
 void MoveRight() {
-    if (snake[SIZE_SNAKE - 1].x + 1 == WIDTH_CONSOLE) {
+    POINT head;
+    head.x = snake[SIZE_SNAKE - 1].x + 1;
+    head.y = snake[SIZE_SNAKE - 1].y;
+    if (IsDead(head)) {
         ProcessDead();
     }
     else {
-        if (snake[SIZE_SNAKE - 1].x + 1 == food.x && snake[SIZE_SNAKE - 1].y == food.y) {
-            Eat();
+        if (!GATE_OPEN) {
+            if (snake[SIZE_SNAKE - 1].x + 1 == food.x && snake[SIZE_SNAKE - 1].y == food.y) {
+                Eat();
+            }
+        }
+        else {
+            if (snake[SIZE_SNAKE - 1].x + 1 == epoint.x && snake[SIZE_SNAKE - 1].y == epoint.y) {
+                PassGate();
+            }
         }
         for (int i = 0; i < SIZE_SNAKE - 1; i++) {
             snake[i].x = snake[i + 1].x;
@@ -113,12 +258,22 @@ void MoveRight() {
 }
 
 void MoveLeft() {
-    if (snake[SIZE_SNAKE - 1].x - 1 == 0) {
+    POINT head;
+    head.x = snake[SIZE_SNAKE - 1].x - 1;
+    head.y = snake[SIZE_SNAKE - 1].y;
+    if (IsDead(head)) {
         ProcessDead();
     }
     else {
-        if (snake[SIZE_SNAKE - 1].x - 1 == food.x && snake[SIZE_SNAKE - 1].y == food.y) {
-            Eat();
+        if (!GATE_OPEN) {
+            if (snake[SIZE_SNAKE - 1].x - 1 == food.x && snake[SIZE_SNAKE - 1].y == food.y) {
+                Eat();
+            }
+        }
+        else {
+            if (snake[SIZE_SNAKE - 1].x - 1 == epoint.x && snake[SIZE_SNAKE - 1].y == epoint.y) {
+                PassGate();
+            }
         }
         for (int i = 0; i < SIZE_SNAKE - 1; i++) {
             snake[i].x = snake[i + 1].x;
@@ -129,12 +284,22 @@ void MoveLeft() {
 }
 
 void MoveDown() {
-    if (snake[SIZE_SNAKE - 1].y + 1 == HEIGHT_CONSOLE) {
+    POINT head;
+    head.x = snake[SIZE_SNAKE - 1].x;
+    head.y = snake[SIZE_SNAKE - 1].y + 1;
+    if (IsDead(head)) {
         ProcessDead();
     }
     else {
-        if (snake[SIZE_SNAKE - 1].x == food.x && snake[SIZE_SNAKE - 1].y + 1 == food.y) {
-            Eat();
+        if (!GATE_OPEN) {
+            if (snake[SIZE_SNAKE - 1].x == food.x && snake[SIZE_SNAKE - 1].y + 1 == food.y) {
+                Eat();
+            }
+        }
+        else {
+            if (snake[SIZE_SNAKE - 1].x == epoint.x && snake[SIZE_SNAKE - 1].y + 1 == epoint.y) {
+                PassGate();
+            }
         }
         for (int i = 0; i < SIZE_SNAKE - 1; i++) {
             snake[i].x = snake[i + 1].x;
@@ -145,12 +310,22 @@ void MoveDown() {
 }
 
 void MoveUp() {
-    if (snake[SIZE_SNAKE - 1].y - 1 == 0) {
+    POINT head;
+    head.x = snake[SIZE_SNAKE - 1].x;
+    head.y = snake[SIZE_SNAKE - 1].y - 1;
+    if (IsDead(head)) {
         ProcessDead();
     }
     else {
-        if (snake[SIZE_SNAKE - 1].x == food.x && snake[SIZE_SNAKE - 1].y - 1 == food.y) {
-            Eat();
+        if (!GATE_OPEN) {
+            if (snake[SIZE_SNAKE - 1].x == food.x && snake[SIZE_SNAKE - 1].y - 1 == food.y) {
+                Eat();
+            }
+        }
+        else {
+            if (snake[SIZE_SNAKE - 1].x == epoint.x && snake[SIZE_SNAKE - 1].y - 1 == epoint.y) {
+                PassGate();
+            }
         }
         for (int i = 0; i < SIZE_SNAKE - 1; i++) {
             snake[i].x = snake[i + 1].x;
@@ -160,7 +335,7 @@ void MoveUp() {
     }
 }
 
-void SaveFile(const char* filename) {
+int SaveFile(const char* filename) {
     std::ofstream f;
     f.open(filename);
 
@@ -173,24 +348,31 @@ void SaveFile(const char* filename) {
         f << std::endl;
 
         // MOVING
-        f << (char) MOVING << " " << (char) CHAR_LOCK << " " << SPEED << std::endl;
+        f << (char)MOVING << " " << (char)CHAR_LOCK << " " << SPEED << std::endl;
 
         // FOOD
         f << FOOD_INDEX << " " << food.x << " " << food.y << std::endl;
         f << food_queue.size() << std::endl;
         for (int i = 0; i < food_queue.size(); i++) {
-            f << food_queue[i].x << " " << food_queue[i].y << " ";
+            f << food_queue[i].x << " " << food_queue[i].y << " " << std::endl;
+        }
+        f << GATE_OPEN << std::endl;
+        if (GATE_OPEN) {
+            for (int i = 0; i < 5; i++)
+                f << gate[i].x << " " << gate[i].y << " ";
         }
 
         f.close();
+        return 0;
     }
     else {
         ErrorLog("Unable to load file: " + std::string(filename));
+        return 1;
     }
 }
 
 
-void LoadFile(const char* filename) {
+int LoadFile(const char* filename) {
     std::ifstream f;
     f.open(filename);
 
@@ -217,10 +399,17 @@ void LoadFile(const char* filename) {
             f >> food.x >> food.y;
             food_queue.push_back(food);
         }
+        f >> GATE_OPEN;
+        if (GATE_OPEN) {
+            for (int i = 0; i < 5; i++)
+                f >> gate[i].x >> gate[i].y;
+        }
         f.close();
-    } 
+        return 0;
+    }
     else {
         ErrorLog("Unable to load file: " + std::string(filename));
+        return 1;
     }
 }
 
@@ -231,16 +420,18 @@ int GameLoop(char key) {
         IS_PAUSE = true;
         if (!LOADFILE) {
             ResetData();
+            level = 0;
             IS_PAUSE = false;
         }
     }
+    LOADFILE = false;
 
     if (IS_PLAYING) {
         if (IS_PAUSE) {
-            if (INIT) {
-                RenderGamePause(WIDTH_CONSOLE, HEIGHT_CONSOLE, food, SIZE_SNAKE, snake, INIT);
-                INIT = false;
-            }
+
+            RenderGamePause(WIDTH_CONSOLE, HEIGHT_CONSOLE, food, SIZE_SNAKE, snake, INIT);
+            INIT = false;
+
             if ((key == 'W') || (key == 'A') || (key == 'S') || (key == 'D')) {
                 // Can add some delay for the player to be ready here
                 IS_PAUSE = false;
@@ -303,14 +494,6 @@ int GameLoop(char key) {
                     break;
                 }
 
-                for (int i = 0; i < SIZE_SNAKE - 1; i++) {
-                    for (int j = i + 1; j < SIZE_SNAKE; j++) {
-                        if ((snake[i].x == snake[j].x) && (snake[i].y == snake[j].y)) {
-                            ProcessDead();
-                        }
-                    }
-                }
-
                 if (food_queue.size() > 0) {
                     if (IsValid(food_queue.front().x, food_queue.front().y)) {
                         for (int i = SIZE_SNAKE - 1; i >= 0; i--)
@@ -322,7 +505,7 @@ int GameLoop(char key) {
                     }
                 }
 
-                RenderGame(WIDTH_CONSOLE, HEIGHT_CONSOLE, food, SIZE_SNAKE, snake, INIT);
+                RenderGame(WIDTH_CONSOLE, HEIGHT_CONSOLE, food, SIZE_SNAKE, snake,wall,level, wall_num, GATE_OPEN, INIT);
                 INIT = false;
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000 / SPEED)); // Pause thread for x ms
@@ -335,7 +518,10 @@ int GameLoop(char key) {
             if (key == 'Y') {
                 ClearSnake(SIZE_SNAKE, snake);
                 ClearFood(food);
+                Clear_wall(wall,wall_num);
                 ResetData();
+                level = 0;
+                RenderGame(WIDTH_CONSOLE, HEIGHT_CONSOLE, food, SIZE_SNAKE, snake, wall, level, wall_num, GATE_OPEN, true);
                 IS_PLAYING = true;
             }
             else if (key == 'T') {
@@ -353,7 +539,7 @@ int GameLoop(char key) {
             if (REMAIN_FRAME > 0) {
                 DeadAnimation(snake[REMAIN_FRAME - 1]);
                 REMAIN_FRAME--;
-                std::this_thread::sleep_for(std::chrono::milliseconds(70));
+                std::this_thread::sleep_for(std::chrono::milliseconds(90));
             }
             else {
                 ANIMATION = 0;
@@ -363,14 +549,24 @@ int GameLoop(char key) {
         case 2: {
             // Passing gate animation
             if (REMAIN_FRAME > 0) {
-                ANIMATION = 0;
-                std::this_thread::sleep_for(std::chrono::milliseconds(70));
+                DeadAnimation(snake[SIZE_SNAKE - REMAIN_FRAME]);
+                REMAIN_FRAME--;
+                std::this_thread::sleep_for(std::chrono::milliseconds(90));
             }
             else {
                 // After Animation stuff
+                ANIMATION = 0;
+                DeleteGate();
                 IS_PLAYING = true;
+                Load_map1();
+                level++;
             }
             break;
+        case 3:
+            // after passing gate and appearing in new map.
+            if (REMAIN_FRAME > 0) {
+
+            }
         }
         }
     }
@@ -378,7 +574,7 @@ int GameLoop(char key) {
 }
 
 int Menu_State(char key) {
-    static int CURSOR;
+    static int CURSOR = 0;
     ClearMenu(CURSOR);
     if (key == 'W') {
         CURSOR -= 1;
@@ -401,24 +597,66 @@ int Menu_State(char key) {
 
 int Setting_State(char key) {
     static int CURSOR = 0;
-    ClearSettings(CURSOR);
+    // ClearSettings(CURSOR);
     if (key == 'W') {
         CURSOR -= 1;
     }
     else if (key == 'S') {
         CURSOR += 1;
     }
-    else if (key == 13) {
+    else if ((key == 13) || (key == 27)) {
         if (CURSOR == 4) {
             INIT = true;
             return 0;
         }
     }
+    else if (key == 'A') {
+        switch (CURSOR) {
+        case 0: {
+            if (setting.Difficulty > 0) setting.Difficulty--;
+            break;
+        }
+        case 1: {
+            if (setting.TotalVolume > 0) setting.TotalVolume--;
+            break;
+        }
+        case 2: {
+            if (setting.MusicVolume > 0) setting.MusicVolume--;
+            break;
+        }
+        case 3: {
+            setting.BGM = !setting.BGM;
+            break;
+        }
+        }
+    }
+    else if (key == 'D') {
+        switch (CURSOR) {
+        case 0: {
+            if (setting.Difficulty < 2) setting.Difficulty++;
+            break;
+        }
+        case 1: {
+            if (setting.TotalVolume < 10) setting.TotalVolume++;
+            break;
+        }
+        case 2: {
+            if (setting.MusicVolume < 10) setting.MusicVolume++;
+            break;
+        }
+        case 3: {
+            setting.BGM = !setting.BGM;
+            break;
+        }
+        }
+    }
     CURSOR = CURSOR % 5;
     if (CURSOR < 0) CURSOR += 5;
-    RenderSettings(CURSOR, INIT);
+    RenderSettings(setting, CURSOR, true);
     INIT = false;
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     return 3;
 }
+
+

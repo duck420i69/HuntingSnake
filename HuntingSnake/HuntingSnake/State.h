@@ -9,6 +9,6 @@ int Menu_State(char key);
 
 int Setting_State(char key);
 
-void SaveFile(const char* filename);
+int SaveFile(const char* filename);
 
-void LoadFile(const char* filename);
+int LoadFile(const char* filename);

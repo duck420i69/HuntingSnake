@@ -1,42 +1,49 @@
 // Everything relate to screen and visual stuff here
 
 #include <iostream>
+#include <cstdio>
 #include "Render.h"
 #include <array>
 
 
+
 using namespace std;
 
-const std::string snakeformat = "21127597";
+const std::string snakeformat = "2112759721127610";
+
+const int ScreenWidth = 120;
+const int ScreenHeight = 40;
+
+static wchar_t* screen = new wchar_t[ScreenWidth * ScreenHeight];
+HANDLE hConsole = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE, 0, NULL, CONSOLE_TEXTMODE_BUFFER, NULL);
+DWORD dwBytesWritten = 0;
 
 
-// std::array<std::string, 20> prev_frame; 
-
-/*
-
-void Render(std::array<std::string, 20>& frame_buffer) {
-
-    // 1st way (maybe for init)
-    system("cls");
-    for (int i = 0; i < H; i++) {
-        cout << frame_buffer[i];
-    }
-
-    // 2nd way
-    for (int j = 0; j < H; j++) {
-        for (int i = 0; i < W; i++) {
-            if (frame_buffer[j][i] != prev_frame[j][i]) {
-                GotoXY(i, j);
-                cout << frame_buffer[j][i];
-            }
-        }
-        prev_frame[i] = frame_buffer[i];
-    }
-
-    // 3rd way: just draw snake and stuff
-
+void RenderInit() {
+    SetConsoleActiveScreenBuffer(hConsole);
 }
-*/
+
+void RenderExit() {
+    delete[] screen;
+}
+
+void inline changeBuffer(int x, int y, wchar_t c) {
+    screen[y * ScreenWidth + x] = c;
+}
+
+void changeBuffer(int x, int y, wstring str) {
+    if (x < 0 || y >= ScreenHeight || y < 0) return;
+    for (int i = x; x < ScreenWidth; i++) {
+        if (i - x >= str.size()) break;
+        screen[y * ScreenWidth + i] = str[i - x];
+    }
+}
+
+void Render() {
+    screen[ScreenWidth * ScreenHeight - 1] = '\0';
+    WriteConsoleOutputCharacter(hConsole, screen, ScreenWidth * ScreenHeight, { 0,0 }, &dwBytesWritten);
+}
+
 
 
 void GotoXY(int x, int y) {
@@ -73,20 +80,41 @@ void ClearFood(POINT food) {
     cout << " ";
 }
 
-void RenderGame(int WIDTH_CONSOLE, int HEIGHT_CONSOLE, POINT food, int SIZE_SNAKE, POINT snake[], bool init) {
+
+void RenderGame(int WIDTH_CONSOLE, int HEIGHT_CONSOLE, POINT food, int SIZE_SNAKE, POINT snake[], POINT wall[],  int level, int wall_num, bool gate_state, bool init) {
     if (init) {
         system("cls");
         DrawBoard(0, 0, WIDTH_CONSOLE, HEIGHT_CONSOLE);
     }
-    GotoXY(food.x, food.y);
-    cout << "O";
 
-    for (int i = 0; i < SIZE_SNAKE - 1; i++) {
-        GotoXY(snake[i].x, snake[i].y);
+    if (!gate_state) {
+        GotoXY(food.x, food.y);
         cout << "O";
     }
-    GotoXY(snake[SIZE_SNAKE - 1].x, snake[SIZE_SNAKE - 1].y);
-    cout << "Q";
+
+    if (level != 0) {
+        Render_wall(wall,wall_num);
+    }
+
+    for (int i = 0; i < SIZE_SNAKE; i++) {
+        GotoXY(snake[i].x, snake[i].y);
+        cout << snakeformat[(SIZE_SNAKE - i - 1) % 16];
+    }
+
+}
+
+void ClearGate(std::array<POINT, 5> gate) {
+    for (int i = 0; i < gate.size(); i++) {
+        GotoXY(gate[i].x, gate[i].y);
+        cout << " ";
+    }
+}
+
+void RenderGate(std::array<POINT, 5> gate) {
+    for (int i = 0; i < gate.size(); i++) {
+        GotoXY(gate[i].x, gate[i].y);
+        cout << "#";
+    }
 }
 
 void RenderGamePause(int WIDTH_CONSOLE, int HEIGHT_CONSOLE, POINT food, int SIZE_SNAKE, POINT snake[], bool init) {
@@ -96,19 +124,17 @@ void RenderGamePause(int WIDTH_CONSOLE, int HEIGHT_CONSOLE, POINT food, int SIZE
         GotoXY(food.x, food.y);
         cout << "O";
 
-        for (int i = 0; i < SIZE_SNAKE - 1; i++) {
+        for (int i = 0; i < SIZE_SNAKE; i++) {
             GotoXY(snake[i].x, snake[i].y);
-            cout << "O";
+            cout << snakeformat[(SIZE_SNAKE - i - 1) % 16];
         }
-        GotoXY(snake[SIZE_SNAKE - 1].x, snake[SIZE_SNAKE - 1].y);
-        cout << "Q";
-    }
 
-    GotoXY(0, HEIGHT_CONSOLE + 2);
-    cout << "Game Paused." << endl;
-    cout << "Use W/A/S/D to resume." << endl;
-    cout << "L to save, T to load.";
-    cout << "Esc to Main Menu.";
+        GotoXY(0, HEIGHT_CONSOLE + 2);
+        cout << "Game Paused." << endl;
+        cout << "Use W/A/S/D to resume." << endl;
+        cout << "L to save, T to load.";
+        cout << "Esc to Main Menu.";
+    }
 
 }
 
@@ -131,21 +157,35 @@ void RenderMenu(int CURSOR, bool init) {
 }
 
 void ClearSettings(int CURSOR) {
-    GotoXY(1, CURSOR + 3); cout << " ";
+    system("cls");
 }
 
-void RenderSettings(int CURSOR, bool init) {
+void RenderSettings(Config setting, int CURSOR, bool init = false) {
     if (init) {
         system("cls");
         cout << endl;
-        cout << "             SETTINGS:";
-        cout << endl;
-        cout << endl;
-        cout << "    DIFFICULTY:  < EASY >  <NORMAL>  < HARD >" << endl;
-        cout << "    Total Volume:  <XXXXXXXX-->" << endl;
-        cout << "    Music Volume:  <########-->" << endl;
-        cout << "    Background Music: [x]" << endl;
-        cout << "    Save and Exit" << endl;
+        cout << "             SETTINGS:\n\n";
+        cout << "    DIFFICULTY:  " ;
+        if (setting.Difficulty == 0)      cout << " < EASY >   | NORMAL |  | HARD | \n";
+        else if (setting.Difficulty == 1) cout << " | EASY |   < NORMAL >  | HARD | \n";
+        else if (setting.Difficulty == 2) cout << " | EASY |   | NORMAL |  < HARD > \n";
+        cout << "    Total Volume:  <";
+        for (int i = 0; i < 10; i++) {
+            if (i < setting.TotalVolume) cout << "X";
+            else cout << "-";
+        }
+        cout << ">\n";
+        cout << "    Music Volume:  <";
+        for (int i = 0; i < 10; i++) {
+            if (i < setting.MusicVolume) cout << "#";
+            else cout << "-";
+        }
+        cout << ">\n";
+        cout << "    Background Music: ["; 
+        if (setting.BGM) cout << "X"; 
+        else cout << " ";
+        cout << "]\n";
+        cout << "    Save and Exit\n";
     }
     GotoXY(1, CURSOR + 3); cout << "*";
     GotoXY(1, CURSOR + 3);
@@ -167,18 +207,26 @@ void ErrorLog(std::string str) {
 }
 
 void DeadAnimation(POINT snake) {
-    // TO-DO: make dead animation
     GotoXY(snake.x, snake.y);
     cout << " ";
 }
 
-
-void PassAnimation(POINT snake) {
-    // TO-DO: make passing gate animation
-
-}
-
 void AppearAnimation(POINT snake) {
-
+    GotoXY(snake.x, snake.y);
 
 }
+
+void Render_wall(POINT wall[],int wall_num) {
+    for (int i = 0; i < wall_num; i++) {
+        GotoXY(wall[i].x, wall[i].y);
+        cout << "#";
+    }
+}
+
+void Clear_wall(POINT wall[], int wall_num) {
+    for (int i = 0; i < wall_num; i++) {
+        GotoXY(wall[i].x, wall[i].y); 
+        cout << " ";
+    }
+}
+
