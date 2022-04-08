@@ -18,9 +18,29 @@ static wchar_t* screen = new wchar_t[ScreenWidth * ScreenHeight];
 HANDLE hConsole = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE, 0, NULL, CONSOLE_TEXTMODE_BUFFER, NULL);
 DWORD dwBytesWritten = 0;
 
+CONSOLE_CURSOR_INFO cursor;
+SMALL_RECT m_rectWindow = { 0, 0, 1, 1 };
 
-void RenderInit() {
+
+bool RenderInit() {
+
+    SetConsoleWindowInfo(hConsole, TRUE, &m_rectWindow);
+
+    // Set the size of the screen buffer
+    COORD coord = { (short)ScreenWidth, (short)ScreenHeight };
+    if (!SetConsoleScreenBufferSize(hConsole, coord))
+        return false;
+
+    // Assign screen buffer to the console
+    if (!SetConsoleActiveScreenBuffer(hConsole))
+        return false;
+
     SetConsoleActiveScreenBuffer(hConsole);
+
+    cursor.bVisible = false;
+    SetConsoleCursorInfo(hConsole, &cursor);
+
+    return true;
 }
 
 void RenderExit() {
@@ -32,6 +52,14 @@ void inline changeBuffer(int x, int y, wchar_t c) {
 }
 
 void changeBuffer(int x, int y, wstring str) {
+    if (x < 0 || y >= ScreenHeight || y < 0) return;
+    for (int i = x; x < ScreenWidth; i++) {
+        if (i - x >= str.size()) break;
+        screen[y * ScreenWidth + i] = str[i - x];
+    }
+}
+
+void changeBuffer(int x, int y, string str) {
     if (x < 0 || y >= ScreenHeight || y < 0) return;
     for (int i = x; x < ScreenWidth; i++) {
         if (i - x >= str.size()) break;
@@ -164,11 +192,12 @@ void RenderSettings(Config setting, int CURSOR, bool init = false) {
     if (init) {
         system("cls");
         cout << endl;
-        cout << "             SETTINGS:\n\n";
-        cout << "    DIFFICULTY:  " ;
-        if (setting.Difficulty == 0)      cout << " < EASY >   | NORMAL |  | HARD | \n";
-        else if (setting.Difficulty == 1) cout << " | EASY |   < NORMAL >  | HARD | \n";
-        else if (setting.Difficulty == 2) cout << " | EASY |   | NORMAL |  < HARD > \n";
+        changeBuffer(0, 1, "             SETTINGS:");
+        changeBuffer(0, 3, "    DIFFICULTY:  ");
+
+        if (setting.Difficulty == 0)      changeBuffer(18, 3, " < EASY >   | NORMAL |  | HARD | ");
+        else if (setting.Difficulty == 1) changeBuffer(18, 3, " | EASY |   < NORMAL >  | HARD | ");
+        else if (setting.Difficulty == 2) changeBuffer(18, 3, " | EASY |   | NORMAL |  < HARD > ");
         cout << "    Total Volume:  <";
         for (int i = 0; i < 10; i++) {
             if (i < setting.TotalVolume) cout << "X";

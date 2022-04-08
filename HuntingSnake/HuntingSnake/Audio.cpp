@@ -5,7 +5,8 @@
 #include <vector>
 #include <cstring>
 #include <string>
-#include <atomic>
+#include <chrono>
+#include <thread>
 #include <condition_variable>
 #include <mutex>
 #include "Windows.h"
@@ -17,8 +18,10 @@ using namespace std;
 
 #define DATA_TYPE short
 
+
+
 typedef struct WAV_HEADER {
-    uint8_t         RIFF[4];        // RIFF Header Magic header
+    uint8_t         RIFF[4];        // RIFF Header
     uint32_t        ChunkSize;      // RIFF Chunk Size
     uint8_t         WAVE[4];        // WAVE Header
     uint8_t         fmt[4];         // FMT header
@@ -35,6 +38,7 @@ typedef struct WAV_HEADER {
 
 struct Audio {
     int id;
+    AudioType type;
     wav_hdr header;
     WAVEFORMATEX waveFormat;
     const DATA_TYPE* data;
@@ -42,6 +46,7 @@ struct Audio {
 
 struct SoundHandler {
     bool isPlaying;
+    AudioType type;
     unsigned int byteleft;
     const DATA_TYPE* pCurrent;
 };
@@ -54,7 +59,7 @@ vector<SoundHandler> hSounds;           // Contain all the sound need to be play
 
 DATA_TYPE* BlockMemory = nullptr;       // Memory holds all the blocks
 WAVEHDR* WaveHeaders = nullptr;         // Memory holds WAVEHDR
-HWAVEOUT DeviceOut;                     // Audio Device to send the data
+HWAVEOUT DeviceOut = nullptr;                     // Audio Device to send the data
 
 bool thread_exit = false;
 
@@ -64,8 +69,10 @@ unsigned int BlockFree = BlockCount;    // Number of free Blocks
 unsigned int BlockCurrent = 0;          // Current Block that need to fill and write to the queue
 
 condition_variable cvBlockNotZero;
+condition_variable cvPause;
 mutex muxBlockNotZero;
 mutex muxFillBlock;
+mutex muxPause;
 
 
 bool AudioInit() {
@@ -87,11 +94,17 @@ bool AudioInit() {
     }
     ZeroMemory(WaveHeaders, sizeof(WAVEHDR) * BlockCount);
 
+    for (int i = 0; i < BlockCount; i++) {
+        WaveHeaders[i].dwBufferLength = BlockSamples * sizeof(DATA_TYPE);
+        WaveHeaders[i].lpData = (LPSTR)(BlockMemory + i * BlockSamples);
+    }
+
     return true;
 }
 
 void AudioExit() {
     thread_exit = true;
+    cvBlockNotZero.notify_one();
     for (auto& sound : Sounds) {
         delete[] sound.data;
     }
@@ -106,22 +119,31 @@ void AudioExit() {
 
 void ChangeAudioConfig(Config setting) {
     DefaultSetting = setting;
+    if (DefaultSetting.UseAudio != setting.UseAudio)
+    if (setting.UseAudio) {
+        unique_lock<mutex> pause(muxPause);
+        cvPause.notify_one();
+    }
+    else {
+
+    }
 }
 
-void LoadAudio(const char* name) {
+bool LoadAudio(const char* name, AudioType type) {
     Audio sample;
     FILE* f = nullptr;
     fopen_s(&f, name, "rb");
     if (f == nullptr)
-        return;
+        return false;
 
+    // Read file
     fread_s(&sample.header.RIFF, 4, 4, 1, f);
-    if (strncmp((char*)sample.header.RIFF, "RIFF", 4) != 0) return;
+    if (strncmp((char*)sample.header.RIFF, "RIFF", 4) != 0) return false;
     fread_s(&sample.header.ChunkSize, 4, 4, 1, f);
     fread_s(&sample.header.WAVE, 4, 4, 1, f);
-    if (strncmp((char*)sample.header.WAVE, "WAVE", 4) != 0) return;
+    if (strncmp((char*)sample.header.WAVE, "WAVE", 4) != 0) return false;
     fread_s(&sample.header.fmt, 4, 4, 1, f);
-    if (strncmp((char*)sample.header.fmt, "fmt ", 4) != 0) return;
+    if (strncmp((char*)sample.header.fmt, "fmt ", 4) != 0) return false;
     fread_s(&sample.header.Subchunk1Size, 4, 4, 1, f);
     fread_s(&sample.header.AudioFormat, 2, 2, 1, f);
     fread_s(&sample.header.NumOfChan, 2, 2, 1, f);
@@ -130,10 +152,10 @@ void LoadAudio(const char* name) {
     fread_s(&sample.header.blockAlign, 2, 2, 1, f);
     fread_s(&sample.header.bitsPerSample, 2, 2, 1, f);
     fread_s(&sample.header.Subchunk2ID, 4, 4, 1, f);
-    if (strncmp((char*)sample.header.Subchunk2ID, "data", 4) != 0) return;
+    if (strncmp((char*)sample.header.Subchunk2ID, "data", 4) != 0) return false;
     fread_s(&sample.header.Subchunk2Size, 4, 4, 1, f);
 
-
+    // Fill WAVEFORMATEX
     sample.waveFormat.wFormatTag = sample.header.AudioFormat;
     sample.waveFormat.nSamplesPerSec = sample.header.SamplesPerSec;
     sample.waveFormat.wBitsPerSample = sample.header.bitsPerSample;
@@ -141,15 +163,28 @@ void LoadAudio(const char* name) {
     sample.waveFormat.nBlockAlign = sample.header.blockAlign;
     sample.waveFormat.nAvgBytesPerSec = sample.header.SamplesPerSec * sample.header.blockAlign;
     sample.waveFormat.cbSize = 0;
+
+    // Test
+    if (sample.waveFormat.wFormatTag == sample.header.AudioFormat) return false;
+    if (sample.waveFormat.nSamplesPerSec == sample.header.SamplesPerSec) return false;
+    if (sample.waveFormat.wBitsPerSample == sample.header.bitsPerSample) return false;
+    if (sample.waveFormat.nChannels == sample.header.NumOfChan) return false;
+    if (sample.waveFormat.nBlockAlign == sample.header.blockAlign) return false;
+    if (sample.waveFormat.nAvgBytesPerSec == sample.header.SamplesPerSec * sample.header.blockAlign) return false;
+    sample.waveFormat.cbSize = 0;
+
+    // Read data
     sample.data = new DATA_TYPE[sample.header.Subchunk2Size / sizeof(DATA_TYPE)];
     fread_s((void*)sample.data, sample.header.Subchunk2Size, sample.header.Subchunk2Size, 1, f);
+    
+    sample.type = type;
     sample.id = Sounds.size();
     Sounds.push_back(sample);
-    std::cout << "Loading success.";
+    return true;
 }
 
 
-
+// CALLBACK function for Windows (CALL for every event Windows sent)
 static void CALLBACK waveOutProc(HWAVEOUT hWaveOut, UINT uMsg, DWORD dwInstance, DWORD dwParam1, DWORD dwParam2) {
     if (uMsg != WOM_DONE) return;
     BlockFree++;
@@ -157,8 +192,8 @@ static void CALLBACK waveOutProc(HWAVEOUT hWaveOut, UINT uMsg, DWORD dwInstance,
     cvBlockNotZero.notify_one();
 }
 
+// Play sound by id
 bool playSound(int id) {
-    unique_lock<mutex> fb(muxFillBlock);
     Audio* buffer = nullptr;
     for (auto& sound : Sounds) {
         if (sound.id == id) {
@@ -167,24 +202,23 @@ bool playSound(int id) {
     }
     if (buffer == nullptr) return false;
 
-
-    for (int i = 0; i < BlockCount; i++) {
-        WaveHeaders[i].dwBufferLength = BlockSamples * sizeof(DATA_TYPE);
-        WaveHeaders[i].lpData = (LPSTR)(BlockMemory + i * BlockSamples);
-    }
-
-    if (waveOutOpen(&DeviceOut, WAVE_MAPPER, &buffer->waveFormat, (DWORD_PTR)waveOutProc, (DWORD_PTR)&BlockFree, CALLBACK_FUNCTION) != S_OK) return false;
+    // Open playing Device (if not open yet)
+    if (DeviceOut == nullptr)
+        if (waveOutOpen(&DeviceOut, WAVE_MAPPER, &buffer->waveFormat, (DWORD_PTR)waveOutProc, (DWORD_PTR)&BlockFree, CALLBACK_FUNCTION) != S_OK) return false;
 
     SoundHandler a;
     a.isPlaying = true;
     a.byteleft = buffer->header.Subchunk2Size;
+    a.type = buffer->type;
     a.pCurrent = buffer->data;
+
+    unique_lock<mutex> fb(muxFillBlock);
     hSounds.push_back(a);
 
     return true;
 }
 
-
+// Mixer to make final wave
 void FillAudioBlocks(DATA_TYPE* Blocks, unsigned int Samples) {
     static long int k = pow(2, sizeof(DATA_TYPE) * 8 - 1) - 1;
     long int newSample = 0;
@@ -195,15 +229,29 @@ void FillAudioBlocks(DATA_TYPE* Blocks, unsigned int Samples) {
         for (auto& sound : hSounds) {
             if (sound.isPlaying) {
                 if (sound.byteleft > 0) {
-                    newSample += *(sound.pCurrent) * DefaultSetting.TotalVolume / 10;
-                    sound.pCurrent++;
-                    sound.byteleft -= sizeof(DATA_TYPE);
+                    switch (sound.type) {
+                    case AudioType::BGMusic: {
+                        newSample += *(sound.pCurrent) * DefaultSetting.TotalVolume * DefaultSetting.MusicVolume / 100;
+                        sound.pCurrent++;
+                        sound.byteleft -= sizeof(DATA_TYPE);
+                        break;
+                    }
+                    case AudioType::SFX: {
+                        newSample += *(sound.pCurrent) * DefaultSetting.TotalVolume * DefaultSetting.SFXVolume / 100;
+                        sound.pCurrent++;
+                        sound.byteleft -= sizeof(DATA_TYPE);
+                        break;
+                    }
+                    }
+
                 }
                 else {
                     sound.isPlaying = false;
                 }
             }
         }
+
+        // Clipping
         if (newSample > k) {
             if (newSample > k) newSample = k;
         }
@@ -213,6 +261,7 @@ void FillAudioBlocks(DATA_TYPE* Blocks, unsigned int Samples) {
         Blocks[i] = newSample;
     }
 
+    // Remove sound that done playing
     int i = 0;
     while (i < hSounds.size()) {
         if (!hSounds[i].isPlaying) {
@@ -225,25 +274,36 @@ void FillAudioBlocks(DATA_TYPE* Blocks, unsigned int Samples) {
 void AudioThread() {
 
     while (!thread_exit) {
-        if (BlockFree == 0) {
-            unique_lock<mutex> lm(muxBlockNotZero);
-            while (BlockFree == 0) {
-                cvBlockNotZero.wait(lm);
+        if (DefaultSetting.UseAudio) {
+            if (BlockFree == 0) {
+                unique_lock<mutex> lm(muxBlockNotZero);
+                while (BlockFree == 0) {
+                    // Sleep until block available
+                    cvBlockNotZero.wait(lm);
+                    if (thread_exit) break;
+                }
             }
+            if (thread_exit) break;
+
+
+            BlockFree--;
+
+            if (WaveHeaders[BlockCurrent].dwFlags & WHDR_PREPARED)
+                waveOutUnprepareHeader(DeviceOut, &WaveHeaders[BlockCurrent], sizeof(WAVEHDR));
+
+            int CurrentBlock = BlockCurrent * BlockSamples; // iter point to the current block
+
+            FillAudioBlocks(&BlockMemory[CurrentBlock], BlockSamples);
+
+            waveOutPrepareHeader(DeviceOut, &WaveHeaders[BlockCurrent], sizeof(WAVEHDR));
+            waveOutWrite(DeviceOut, &WaveHeaders[BlockCurrent], sizeof(WAVEHDR));
+
+            BlockCurrent++;
+            BlockCurrent %= BlockCount;
         }
-        BlockFree--;
-        if (WaveHeaders[BlockCurrent].dwFlags & WHDR_PREPARED)
-            waveOutUnprepareHeader(DeviceOut, &WaveHeaders[BlockCurrent], sizeof(WAVEHDR));
-
-        DATA_TYPE NewSample = 0;
-        int CurrentBlock = BlockCurrent * BlockSamples;
-
-        FillAudioBlocks(&BlockMemory[CurrentBlock], BlockSamples);
-
-        waveOutPrepareHeader(DeviceOut, &WaveHeaders[BlockCurrent], sizeof(WAVEHDR));
-        waveOutWrite(DeviceOut, &WaveHeaders[BlockCurrent], sizeof(WAVEHDR));
-
-        BlockCurrent++;
-        BlockCurrent %= BlockCount;
+        else {
+            unique_lock<mutex> pause(muxPause);
+            cvPause.wait(pause);
+        }
     }
 }

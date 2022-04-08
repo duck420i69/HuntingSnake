@@ -22,6 +22,15 @@ bool volatile TYPING = false;
 bool STOP_THREAD = false;
 char str[20];
 
+enum class STATE {
+    MENU,
+    GAME,
+    LOAD,
+    SETTING,
+    EXIT,
+    SAVE
+};
+
 
 
 void FixConsoleWindow() {
@@ -109,6 +118,7 @@ int main() {
                 }
                 if (CUR_STATE == 4) {
                     if (t1.joinable()) t1.join();
+                    AudioExit();
                     if (tAudio.joinable()) tAudio.join();
                     break;
                 }
@@ -118,7 +128,7 @@ int main() {
                 TYPING = false;
             }
         }
-        AudioExit();
+
     }
     return 0;
 }

@@ -584,6 +584,7 @@ int Menu_State(char key) {
     }
     else if (key == 13) {
         INIT = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
         return CURSOR + 1;
     }
     CURSOR = CURSOR % 4;
@@ -606,6 +607,7 @@ int Setting_State(char key) {
     }
     else if ((key == 13) || (key == 27)) {
         if (CURSOR == 4) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             INIT = true;
             return 0;
         }
@@ -650,6 +652,7 @@ int Setting_State(char key) {
         }
         }
     }
+    ChangeAudioConfig(setting);
     CURSOR = CURSOR % 5;
     if (CURSOR < 0) CURSOR += 5;
     RenderSettings(setting, CURSOR, true);

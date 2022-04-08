@@ -10,12 +10,10 @@ struct Config {
 	bool BGM = true;		// Background music
 	char TotalVolume = 8;	// Game volume
 	char MusicVolume = 8;	// Background Volume
-	char Difficulty = 2;	// Difficulty
+	char SFXVolume   = 8;	// SFX Volume
+	char Difficulty  = 2;	// Difficulty
 };
 
-
-
-void GotoXY(int x, int y);
 
 void ClearSnake(int SIZE_SNAKE, POINT snake[]);
 
