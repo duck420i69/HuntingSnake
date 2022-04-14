@@ -7,6 +7,9 @@
 #include <thread>
 #include <conio.h>
 #include <deque>
+#include <mutex>
+#include <atomic>
+#include <condition_variable>
 #include "Audio.h"
 #include "State.h"
 #include "Render.h"
@@ -16,22 +19,17 @@ using namespace std;
 //Global variables
 char volatile temp = '.';
 char volatile key = ',';
-int PRE_STATE = -1;
 int CUR_STATE = 0;
 bool volatile TYPING = false;       
 bool STOP_THREAD = false;
+atomic<bool> GetInput;
 char str[20];
 
-enum class STATE {
-    MENU,
-    GAME,
-    LOAD,
-    SETTING,
-    EXIT,
-    SAVE
-};
+mutex muxKeyPress;
+condition_variable cvGetKey;
 
-
+mutex muxInputString;
+condition_variable cvGetString;
 
 void FixConsoleWindow() {
     HWND consoleWindow = GetConsoleWindow(); // Console window handler
@@ -43,9 +41,15 @@ void FixConsoleWindow() {
 
 void ThreadFunc() {
     
-    while (1) {
-        if (STOP_THREAD) break;
-        key = temp;
+    while (!STOP_THREAD) {
+        {
+            GetInput = true;
+            unique_lock<mutex> input(muxKeyPress);
+            key = temp;
+            temp = '.';
+            GetInput = false;
+            cvGetKey.notify_one();
+        }
         switch (CUR_STATE) {
             case 0: {
                 // MENU STATE
@@ -66,10 +70,7 @@ void ThreadFunc() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                     CUR_STATE = 0;
                 }
-                else
-                    CUR_STATE = 1;
-                break;
-                CUR_STATE = 1;
+                else CUR_STATE = 1;
                 break;
             }
             case 3: {
@@ -80,6 +81,7 @@ void ThreadFunc() {
             case 4: {
                 // EXIT
                 STOP_THREAD = true;
+                cvGetKey.notify_one();
                 break;
             }
             case 5: {
@@ -92,7 +94,6 @@ void ThreadFunc() {
                 break;
             }
         }
-        PRE_STATE = CUR_STATE;
     }
 }
 
@@ -100,23 +101,31 @@ void ThreadFunc() {
 int main() {
 
     FixConsoleWindow();
-
+       
+    RenderInit();
 
     if (AudioInit()) {
         thread tAudio = thread(AudioThread);
-
-
         thread t1(ThreadFunc); //Create thread for snake  
-        HANDLE handle_t1 = t1.native_handle(); //Take handle of thread
         while (1) {
             if (!TYPING) {
-                temp = '.';
-                temp = toupper(_getch());
-                while (key != temp) {
-                    if (STOP_THREAD || TYPING) break;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                unique_lock<mutex> input(muxKeyPress);
+
+                if (GetAsyncKeyState('A') & 0x8000) temp = 'A';
+                else if (GetAsyncKeyState('S') & 0x8000) temp = 'S';
+                else if (GetAsyncKeyState('D') & 0x8000) temp = 'D';
+                else if (GetAsyncKeyState('W') & 0x8000) temp = 'W';
+                else if (GetAsyncKeyState('P') & 0x8000) temp = 'P';
+                else if (GetAsyncKeyState('Y') & 0x8000) temp = 'Y';
+                else if (GetAsyncKeyState('L') & 0x8000) temp = 'L';
+                else if (GetAsyncKeyState('T') & 0x8000) temp = 'T';
+                else if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) temp = 27;
+                else if (GetAsyncKeyState(VK_RETURN) & 0x8000) temp = 13;
+                if (GetInput == true) {
+                    cvGetKey.wait(input);
                 }
                 if (CUR_STATE == 4) {
+                    RenderExit();
                     if (t1.joinable()) t1.join();
                     AudioExit();
                     if (tAudio.joinable()) tAudio.join();
