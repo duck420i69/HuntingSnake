@@ -21,6 +21,6 @@ void ChangeAudioConfig(Config setting);
 bool LoadAudio(const char* name, AudioType type);
 
 // Play music with id
-bool playSound(int id);
+bool playSound(int id, bool loop = false);
 
 void AudioThread();

@@ -47,8 +47,11 @@ struct Audio {
 struct SoundHandler {
     bool isPlaying;
     AudioType type;
+    bool Loop;
     unsigned int byteleft;
+    unsigned int size;
     const DATA_TYPE* pCurrent;
+    const DATA_TYPE* pData;
 };
 
 Config DefaultSetting;
@@ -70,9 +73,11 @@ unsigned int BlockCurrent = 0;          // Current Block that need to fill and w
 
 condition_variable cvBlockNotZero;
 condition_variable cvPause;
+condition_variable cvActive;
 mutex muxBlockNotZero;
 mutex muxFillBlock;
 mutex muxPause;
+mutex muxActive;
 
 
 bool AudioInit() {
@@ -143,6 +148,16 @@ bool LoadAudio(const char* name, AudioType type) {
     fread_s(&sample.header.WAVE, 4, 4, 1, f);
     if (strncmp((char*)sample.header.WAVE, "WAVE", 4) != 0) return false;
     fread_s(&sample.header.fmt, 4, 4, 1, f);
+    if (strncmp((char*)sample.header.fmt, "JUNK", 4) == 0) {
+        uint32_t n;
+        uint16_t buffer;
+        fread_s(&n, 4, 4, 1, f);
+        if (n % 2 == 1) n++;
+        for (int i = 0; i < n / 2; i++) {
+            fread_s(&buffer, 2, 2, 1, f);
+        }
+        fread_s(&sample.header.fmt, 4, 4, 1, f);
+    }
     if (strncmp((char*)sample.header.fmt, "fmt ", 4) != 0) return false;
     fread_s(&sample.header.Subchunk1Size, 4, 4, 1, f);
     fread_s(&sample.header.AudioFormat, 2, 2, 1, f);
@@ -165,12 +180,12 @@ bool LoadAudio(const char* name, AudioType type) {
     sample.waveFormat.cbSize = 0;
 
     // Test
-    if (sample.waveFormat.wFormatTag == sample.header.AudioFormat) return false;
-    if (sample.waveFormat.nSamplesPerSec == sample.header.SamplesPerSec) return false;
-    if (sample.waveFormat.wBitsPerSample == sample.header.bitsPerSample) return false;
-    if (sample.waveFormat.nChannels == sample.header.NumOfChan) return false;
-    if (sample.waveFormat.nBlockAlign == sample.header.blockAlign) return false;
-    if (sample.waveFormat.nAvgBytesPerSec == sample.header.SamplesPerSec * sample.header.blockAlign) return false;
+    if (sample.waveFormat.wFormatTag != sample.header.AudioFormat) return false;
+    if (sample.waveFormat.nSamplesPerSec != sample.header.SamplesPerSec) return false;
+    if (sample.waveFormat.wBitsPerSample != sample.header.bitsPerSample) return false;
+    if (sample.waveFormat.nChannels != sample.header.NumOfChan) return false;
+    if (sample.waveFormat.nBlockAlign != sample.header.blockAlign) return false;
+    if (sample.waveFormat.nAvgBytesPerSec != sample.header.SamplesPerSec * sample.header.blockAlign) return false;
     sample.waveFormat.cbSize = 0;
 
     // Read data
@@ -193,7 +208,7 @@ static void CALLBACK waveOutProc(HWAVEOUT hWaveOut, UINT uMsg, DWORD dwInstance,
 }
 
 // Play sound by id
-bool playSound(int id) {
+bool playSound(int id, bool loop) {
     Audio* buffer = nullptr;
     for (auto& sound : Sounds) {
         if (sound.id == id) {
@@ -210,10 +225,15 @@ bool playSound(int id) {
     a.isPlaying = true;
     a.byteleft = buffer->header.Subchunk2Size;
     a.type = buffer->type;
+    a.size = buffer->header.Subchunk2Size;
     a.pCurrent = buffer->data;
+    a.pData = buffer->data;
+    a.Loop = loop;
 
     unique_lock<mutex> fb(muxFillBlock);
     hSounds.push_back(a);
+
+    cvActive.notify_one();
 
     return true;
 }
@@ -231,9 +251,11 @@ void FillAudioBlocks(DATA_TYPE* Blocks, unsigned int Samples) {
                 if (sound.byteleft > 0) {
                     switch (sound.type) {
                     case AudioType::BGMusic: {
-                        newSample += *(sound.pCurrent) * DefaultSetting.TotalVolume * DefaultSetting.MusicVolume / 100;
-                        sound.pCurrent++;
-                        sound.byteleft -= sizeof(DATA_TYPE);
+                        if (DefaultSetting.BGM) {
+                            newSample += *(sound.pCurrent) * DefaultSetting.TotalVolume * DefaultSetting.MusicVolume / 100;
+                            sound.pCurrent++;
+                            sound.byteleft -= sizeof(DATA_TYPE);
+                        }
                         break;
                     }
                     case AudioType::SFX: {
@@ -265,16 +287,32 @@ void FillAudioBlocks(DATA_TYPE* Blocks, unsigned int Samples) {
     int i = 0;
     while (i < hSounds.size()) {
         if (!hSounds[i].isPlaying) {
-            hSounds.erase(hSounds.begin() + i);
+            if (hSounds[i].Loop) {
+                hSounds[i].isPlaying = true;
+                hSounds[i].pCurrent = hSounds[i].pData;
+                hSounds[i].byteleft = hSounds[i].size;
+                i++;
+            }
+            else hSounds.erase(hSounds.begin() + i);
         }
         else i++;
     }
+
 }
 
 void AudioThread() {
 
     while (!thread_exit) {
+
         if (DefaultSetting.UseAudio) {
+            if (hSounds.size() == 0) {
+                unique_lock<mutex> pl(muxActive);
+                while (hSounds.size() == 0) {
+                    // Sleep until there is sound to play
+                    cvActive.wait(pl);
+                    if (thread_exit) break;
+                }
+            }
             if (BlockFree == 0) {
                 unique_lock<mutex> lm(muxBlockNotZero);
                 while (BlockFree == 0) {

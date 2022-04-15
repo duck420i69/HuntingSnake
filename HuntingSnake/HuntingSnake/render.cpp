@@ -16,7 +16,8 @@ const int ScreenWidth = 120;
 const int ScreenHeight = 40;
 
 static CHAR_INFO* screen;
-HANDLE hConsole = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE, 0, NULL, CONSOLE_TEXTMODE_BUFFER, NULL);
+HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+HANDLE hConsoleIn = GetStdHandle(STD_INPUT_HANDLE);
 DWORD dwBytesWritten = 0;
 CONSOLE_CURSOR_INFO cursor;
 SMALL_RECT rectWindow = { 0, 0, 1, 1 };
@@ -90,13 +91,16 @@ void Render() {
         for (int j = 0; j < ScreenWidth; j++) {
             switch (screen[i * ScreenWidth + j].Char.UnicodeChar) {
             case L'#': {
-                screen[i * ScreenWidth + j].Attributes = 0x000F; 
+                screen[i * ScreenWidth + j].Attributes = 0x0000; 
                 screen[i * ScreenWidth + j].Char.UnicodeChar = 0x2588;
-                screen[i * ScreenWidth + j + 1].Attributes = 0x000F;
+                screen[i * ScreenWidth + j + 1].Attributes = 0x0000;
                 screen[i * ScreenWidth + j + 1].Char.UnicodeChar = 0x2588;
+                break;
             }
             case L'\0': {
-                screen[i * ScreenWidth + j].Attributes = 0x00F0;
+                if (screen[i * ScreenWidth + j].Attributes == 0x0000)
+                    screen[i * ScreenWidth + j].Attributes = 0x00F0;
+                break;
             }
             default: {
                 screen[i * ScreenWidth + j].Attributes = 0x00F0;
@@ -139,6 +143,8 @@ void DrawSnake(POINT snake[], int SIZE_SNAKE) {
 }
 
 void RenderGame(int WIDTH_CONSOLE, int HEIGHT_CONSOLE, POINT food, int SIZE_SNAKE, POINT snake[], POINT wall[], int level, int wall_num, bool gate_state, std::array<POINT, 5> gate) {
+    cursor.bVisible = false;
+    SetConsoleCursorInfo(hConsole, &cursor);
      clearScreen();
      DrawBoard(0, 0, WIDTH_CONSOLE, HEIGHT_CONSOLE);
     if (!gate_state) {
@@ -168,16 +174,16 @@ void RenderGate(std::array<POINT, 5> gate) {
 
 void RenderGamePause(int WIDTH_CONSOLE, int HEIGHT_CONSOLE, POINT food, int SIZE_SNAKE, POINT snake[], bool init) {
     if (init) {
-        system("cls");
+        clearScreen();
         DrawBoard(0, 0, WIDTH_CONSOLE, HEIGHT_CONSOLE);
         changeBuffer(food.x, food.y, '0');
         DrawSnake(snake, SIZE_SNAKE);
-        changeBuffer(HEIGHT_CONSOLE + 2, 0, L"Game Paused.");
-        changeBuffer(HEIGHT_CONSOLE + 3, 0, L"Use W/A/S/D to resume.");
-        changeBuffer(HEIGHT_CONSOLE + 4, 0, L"L to save, T to load.");
-        changeBuffer(HEIGHT_CONSOLE + 5, 0, L"Esc to Main Menu.");
+        changeBuffer(0, HEIGHT_CONSOLE + 2, L"Game Paused.");
+        changeBuffer(0, HEIGHT_CONSOLE + 3, L"Use W/A/S/D to resume.");
+        changeBuffer(0, HEIGHT_CONSOLE + 4, L"L to save, T to load.");
+        changeBuffer(0, HEIGHT_CONSOLE + 5, L"Esc to Main Menu.");
     }
-
+    Render();
 }
 
 void ClearMenu(int CURSOR) {
@@ -185,6 +191,8 @@ void ClearMenu(int CURSOR) {
 }
 
 void RenderMenu(int CURSOR, bool init) {
+    cursor.bVisible = false;
+    SetConsoleCursorInfo(hConsole, &cursor);
     if (init) {
         clearScreen();
 
@@ -236,11 +244,18 @@ void RenderSettings(Config setting, int CURSOR, bool init = false) {
 }
 
 void RenderLoad() {
+    cursor.bVisible = true;
+    SetConsoleCursorInfo(hConsole, &cursor);
+    FlushConsoleInputBuffer(hConsole);
+    SetConsoleCursorPosition(hConsole, { 12 , 0 });
     clearScreen();
     changeBuffer(0, 0, L"Load file:");
 }
 
 void RenderSave() {
+    cursor.bVisible = true;
+    SetConsoleCursorInfo(hConsole, &cursor);
+    FlushConsoleInputBuffer(hConsole);
     clearScreen();
     changeBuffer(0, 0, L"Save file name: ");
 }
@@ -261,6 +276,7 @@ void RenderScore(int score) {
 
 void ErrorLog(std::wstring str) {
     changeBuffer(0, ScreenHeight - 3, str);
+    Render();
 }
 
 void DeadAnimation(POINT snake) {

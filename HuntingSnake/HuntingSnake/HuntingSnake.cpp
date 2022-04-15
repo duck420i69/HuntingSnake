@@ -18,7 +18,9 @@ using namespace std;
 
 //Global variables
 char volatile temp = '.';
+char volatile prev_key = '.';
 char volatile key = ',';
+int k = 0;
 int CUR_STATE = 0;
 bool volatile TYPING = false;       
 bool STOP_THREAD = false;
@@ -40,13 +42,20 @@ void FixConsoleWindow() {
 }
 
 void ThreadFunc() {
-    
     while (!STOP_THREAD) {
         {
             GetInput = true;
             unique_lock<mutex> input(muxKeyPress);
-            key = temp;
-            temp = '.';
+            if (prev_key == temp) {
+                key = '.';
+                temp = '.';
+                prev_key = key;
+            }
+            else {
+                prev_key = key;
+                key = temp;
+                temp = '.';
+            }
             GetInput = false;
             cvGetKey.notify_one();
         }
@@ -63,12 +72,15 @@ void ThreadFunc() {
             }
             case 2: {
                 // LOAD STATE
-                RenderLoad();
                 TYPING = true;
+                std::chrono::milliseconds(10);
+                RenderLoad();
+                Render();
                 while (TYPING) std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 if (LoadFile(str)) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                     CUR_STATE = 0;
+                    temp = '.';
                 }
                 else CUR_STATE = 1;
                 break;
@@ -86,10 +98,13 @@ void ThreadFunc() {
             }
             case 5: {
                 // SAVE STATE
-                RenderSave();
                 TYPING = true;
+                std::chrono::milliseconds(10);
+                RenderSave();
+                Render();
                 while (TYPING) std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 SaveFile(str);
+                temp = '.';
                 CUR_STATE = 1;
                 break;
             }
@@ -105,8 +120,13 @@ int main() {
     RenderInit();
 
     if (AudioInit()) {
+        LoadAudio("eat.wav", AudioType::SFX);
+        LoadAudio("Bubble heavy 2.wav", AudioType::SFX);
+        LoadAudio("BG.wav", AudioType::BGMusic);
+        LoadAudio("beep.wav", AudioType::SFX);
         thread tAudio = thread(AudioThread);
         thread t1(ThreadFunc); //Create thread for snake  
+        playSound(2, true);
         while (1) {
             if (!TYPING) {
                 unique_lock<mutex> input(muxKeyPress);
@@ -133,6 +153,7 @@ int main() {
                 }
             }
             else {
+                cin.ignore(INT_MAX, '\n');
                 cin >> str;
                 TYPING = false;
             }

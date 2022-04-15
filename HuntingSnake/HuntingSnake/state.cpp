@@ -111,8 +111,8 @@ void drawSquare(POINT a[], int& n, int x, int y) {
 
 void Load_map() {
     int n;
-    switch (level) {
-    case 1:
+    switch (level) {    //add wall
+    case 1: {
         wall_num = 100;
         n = 0;
         for (int i = 4; i < 18; i++) {
@@ -144,7 +144,8 @@ void Load_map() {
             wall[++n] = { 5 + i,26 - i };
         }
         break;
-    case 2:
+    }
+    case 2: {
         wall_num = 150;
         n = -1;
         for (int i = 0; i < 10; i++) {
@@ -178,6 +179,7 @@ void Load_map() {
             drawSquare(wall, n, 6 + i, 24 - i);
         }
         break;
+    }
     }
 }
 
@@ -311,6 +313,7 @@ void ResetData() {
 void Eat() {
 
     if (GATE_OPEN == false) {
+        playSound(0);
         score += (setting.Difficulty + 1) * 10;
         if (FOOD_INDEX == MAX_SIZE_FOOD - 1) {
             SpawnGate();
@@ -476,7 +479,10 @@ int SaveFile(const char* filename) {
             for (int i = 0; i < 5; i++)
                 f << gate[i].x << " " << gate[i].y << " ";
         }
-
+        f << std::endl;
+        f << level << " ";
+        f << setting.Difficulty<<" ";
+        f << score;
         f.close();
         return 0;
     }
@@ -519,6 +525,9 @@ int LoadFile(const char* filename) {
             for (int i = 0; i < 5; i++)
                 f >> gate[i].x >> gate[i].y;
         }
+        f >> level;
+        f >> setting.Difficulty;
+        f >> score;
         f.close();
         return 0;
     }
@@ -545,7 +554,7 @@ int GameLoop(char key) {
     if (IS_PLAYING) {
         if (IS_PAUSE) {
 
-            RenderGamePause(WIDTH_CONSOLE, HEIGHT_CONSOLE, food, SIZE_SNAKE, snake, INIT);
+            RenderGamePause(WIDTH_CONSOLE, HEIGHT_CONSOLE, food, SIZE_SNAKE, snake, true);
             INIT = false;
 
             if ((key == 'W') || (key == 'A') || (key == 'S') || (key == 'D')) {
@@ -654,14 +663,16 @@ int GameLoop(char key) {
         case 1: {
             // Dead animation
             if (REMAIN_FRAME > 0) {
-
+                // Playing animation
                 DeadAnimation(snake[REMAIN_FRAME - 1]);
                 REMAIN_FRAME--;
                 Render();
+                playSound(3);
                 std::this_thread::sleep_for(std::chrono::milliseconds(90));
             }
             else {
-
+                // Thing after animation
+                playSound(1);
                 ANIMATION = 0;
                 level = 0;
             }
@@ -673,10 +684,12 @@ int GameLoop(char key) {
                 Passing(snake, SIZE_SNAKE, REMAIN_FRAME);
                 Render();
                 REMAIN_FRAME--;
+                playSound(3);
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000 / SPEED));
             }
             else {
                 // After Animation stuff
+                playSound(1);
                 ClearSnake(SIZE_SNAKE, snake);
                 Render();
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000 / SPEED));
@@ -736,7 +749,7 @@ int Menu_State(char key) {
     else if (key == 13) {
         INIT = true;
         Render();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
         return CURSOR + 1;
     }
     CURSOR = CURSOR % 4;
@@ -744,7 +757,7 @@ int Menu_State(char key) {
     RenderMenu(CURSOR, INIT);
     INIT = false;
     Render();
-    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     return 0;
 }
@@ -761,7 +774,7 @@ int Setting_State(char key) {
     else if ((key == 13) || (key == 27)) {
         if (CURSOR == 5) {
             Render();
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
             INIT = true;
             return 0;
         }
@@ -820,7 +833,7 @@ int Setting_State(char key) {
     RenderSettings(setting, CURSOR, true);
     INIT = false;
     Render();
-    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     return 3;
 }
