@@ -1,6 +1,3 @@
 # HuntingSnake
 
-THINGS TO DO:
-
-1. Render
-2. Debug
+School project: a snake game on console and winapi
